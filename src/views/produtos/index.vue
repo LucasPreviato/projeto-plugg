@@ -149,7 +149,7 @@ const theme = useTheme();
 const products = ref({ total: 0, showing: 0, result: [] });
 const isLoading = ref(false);
 const lastPluggtoId = ref(null);
-const accessToken = "14e1e5d876dc920641346362c49a0d3cfc802474";
+const accessToken = "91d6b35480d1a16c796d6a7c4c5eaf7e04305ceb";
 
 // Cabeçalho da tabela
 const headers = [
@@ -259,6 +259,7 @@ const dialogDelete = ref(false);
 
 const editedIndex = ref(-1);
 const editedItem = ref({
+  sku: "",
   name: "",
   price: 0,
   quantity: 0,
@@ -270,30 +271,37 @@ const defaultItem = {
 };
 
 const formTitle = computed(() => {
-  return editedIndex.value === -1 ? "Novo Produto" : "Editar Produto";
+  return editedIndex.value !== -1 ? "Novo Produto" : "Editar Produto";
 });
 
 // Método para editar um produto
-const editItem = (item) => {
-  const index = products.value.result.findIndex(
-    (product) => product.sku === item.sku
-  );
-  if (index !== -1) {
-    console.log("Produto encontrado:", products.value.result[index]);
-    editedIndex.value = index;
+const editItem = async (item) => {
+  try {
+    const response = await axios.get(
+      `https://api.plugg.to/skus/${item.Product.sku}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          accept: "application/json",
+        },
+      }
+    );
+    console.log("Resposta da API:", response);
+    const productDetails = response.data;
+    console.log("Detalhes do produto:", productDetails);
+    // Preencha os detalhes do produto em editedItem
     editedItem.value = {
-      name: products.value.result[index].name,
-      price: products.value.result[index].price,
-      quantity: products.value.result[index].quantity,
+      ...productDetails.Product,
+      sku: item.Product.sku,
     };
     console.log("Produto editado:", editedItem.value);
     dialog.value = true;
-  } else {
-    console.log("Produto não encontrado com SKU:", item.sku);
-    // Ou exibir uma mensagem de alerta
-    // alert("Produto não encontrado com SKU: " + item.sku);
+  } catch (error) {
+    console.error("Erro ao editar o item:", error.message);
   }
 };
+
 // Método para deletar um produto
 const deleteItem = (item) => {
   editedIndex.value = products.value.result.indexOf(item);
@@ -327,35 +335,51 @@ const closeDelete = () => {
 
 // Método para salvar as alterações em um produto
 const save = async () => {
-  if (editedIndex.value > -1) {
-    Object.assign(products.value.result[index], editedItem.value);
-  } else {
-    products.value.result.push({ ...editedItem.value });
-  }
-  close();
-
-  // Envie as alterações para a API
   try {
-    const response = await axios.put(
-      `https://api.plugg.to/products/${editedItem.value.sku}`,
-      editedItem.value,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          accept: "application/json",
-        },
+    if (editedItem.value.sku) {
+      // Se o SKU estiver presente, estamos editando um produto existente
+      console.log("Salvando alterações para o produto:", editedItem.value);
+
+      const response = await axios.put(
+        `https://api.plugg.to/skus/${editedItem.value.sku}`,
+        editedItem.value,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            accept: "application/json",
+          },
+        }
+      );
+      if (response.status === 200) {
+        console.log("Alterações salvas com sucesso!");
+      } else {
+        console.error("Erro ao salvar as alterações:", response.data.message);
       }
-    );
-    if (response.status === 200) {
-      // Atualizar a interface do usuário ou exibir uma mensagem de sucesso
-      console.log("Alterações salvas com sucesso!");
     } else {
-      // Exibir mensagem de erro para o usuário
-      console.error("Erro ao salvar as alterações:", response.data.message);
+      // Se o SKU estiver ausente, estamos criando um novo produto
+      const response = await axios.post(
+        "https://api.plugg.to/skus",
+        editedItem.value,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            accept: "application/json",
+          },
+        }
+      );
+      if (response.status === 201) {
+        console.log("Novo produto criado com sucesso!");
+      } else {
+        console.error("Erro ao criar o novo produto:", response.data.message);
+      }
     }
   } catch (error) {
     console.error("Erro ao salvar as alterações:", error);
+  } finally {
+    // Feche o diálogo de edição, independentemente do resultado da requisição
+    close();
   }
 };
 
