@@ -3,16 +3,29 @@
     <v-container class="ml-3 px-3">
       <v-row class="">
         <v-col cols="2" class="d-flex pl-0 ml-0">
-          <FiltersProducts />
+          <FiltersProducts @apply-filters="applyFilters" />
         </v-col>
         <v-col cols="10" class="pl-0 ml-0">
           <v-data-table
-            density="compact"
             :loading="isLoading"
             :headers="headers"
             :items="products.result"
-            :sort-by="[{ key: 'calories', order: 'asc' }]"
+            density="compact"
+            show-expand
           >
+            <template v-slot:expanded-row="{ columns, item }">
+              <tr>
+                <td :colspan="columns.length">
+                  <v-data-table
+                    :headers="variationHeaders"
+                    :items="item.Product.variations"
+                    :loading="isLoading"
+                    item-key="id"
+                    hide-default-footer
+                  ></v-data-table>
+                </td>
+              </tr>
+            </template>
             <template v-slot:top>
               <v-toolbar flat>
                 <v-toolbar-title>Catalogo de Produtos</v-toolbar-title>
@@ -133,13 +146,12 @@ import { useTheme } from "vuetify";
 import axios from "axios";
 
 const theme = useTheme();
-const isLoadging = ref(false);
 const products = ref({ total: 0, showing: 0, result: [] });
 const isLoading = ref(false);
 const lastPluggtoId = ref(null);
-const accessToken = "e3abf430a0f57cf40b3d8f0eed3a9960de49e673";
+const accessToken = "14e1e5d876dc920641346362c49a0d3cfc802474";
 
-// cabeçalho da tabela
+// Cabeçalho da tabela
 const headers = [
   {
     title: "Sku",
@@ -150,10 +162,23 @@ const headers = [
   { title: "Nome", value: "Product.name" },
   { title: "Preço", value: "Product.price" },
   { title: "Estoque", value: "Product.quantity" },
-  { title: "Acões", value: "actions" },
-  { title: "Variações", value: "", sortable: false },
+  { title: "Ações", value: "actions" },
+  {
+    title: "Variações",
+    value: "data-table-expand",
+    align: "center",
+    sortable: false,
+  },
 ];
-// fetch products, responsavel pelos dados da tabela 
+const variationHeaders = [
+  { title: "SKU", value: "sku", align: "start", sortable: false },
+  { title: "Nome", value: "name" },
+  { title: "Preço", value: "price" },
+  { title: "Quantidade", value: "quantity" },
+  { title: "Ações", value: "actions" },
+];
+
+// Método para buscar os produtos
 const fetchProducts = async () => {
   isLoading.value = true;
 
@@ -193,9 +218,44 @@ const fetchProducts = async () => {
   }
 };
 
+// Método para aplicar filtros
+const applyFilters = async (filters) => {
+  isLoading.value = true;
+
+  let url = "https://api.plugg.to/products";
+
+  if (filters) {
+    const queryParams = new URLSearchParams(filters).toString();
+    url += `?${queryParams}`;
+  }
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        accept: "application/json",
+      },
+    });
+    const responseData = response.data;
+    console.log("Produtos filtrados:", responseData);
+    console.log("url utilizada", url);
+
+    products.value = {
+      total: responseData.total,
+      showing: responseData.result.length,
+      result: responseData.result,
+    };
+  } catch (error) {
+    console.error("Erro ao buscar produtos com filtros:", error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+// Variáveis e métodos relacionados à edição e exclusão de produtos
 const dialog = ref(false);
 const dialogDelete = ref(false);
-
 
 const editedIndex = ref(-1);
 const editedItem = ref({
@@ -205,43 +265,49 @@ const editedItem = ref({
 });
 const defaultItem = {
   name: "",
-  calories: 0,
-  fat: 0,
-  carbs: 0,
-  protein: 0,
+  price: 0,
+  quantity: 0,
 };
 
 const formTitle = computed(() => {
   return editedIndex.value === -1 ? "Novo Produto" : "Editar Produto";
 });
 
-onMounted(() => {
-  fetchProducts();
-});
-
-
+// Método para editar um produto
 const editItem = (item) => {
-  const index = products.value.result.findIndex(product => product.sku === item.sku);
+  const index = products.value.result.findIndex(
+    (product) => product.sku === item.sku
+  );
   if (index !== -1) {
+    console.log("Produto encontrado:", products.value.result[index]);
     editedIndex.value = index;
-    // Copiar os valores do item atual para o editedItem
-    editedItem.value = { ...products.value.result[index] };
+    editedItem.value = {
+      name: products.value.result[index].name,
+      price: products.value.result[index].price,
+      quantity: products.value.result[index].quantity,
+    };
+    console.log("Produto editado:", editedItem.value);
     dialog.value = true;
+  } else {
+    console.log("Produto não encontrado com SKU:", item.sku);
+    // Ou exibir uma mensagem de alerta
+    // alert("Produto não encontrado com SKU: " + item.sku);
   }
 };
-
-
+// Método para deletar um produto
 const deleteItem = (item) => {
-  editedIndex.value = products.value.indexOf(item);
+  editedIndex.value = products.value.result.indexOf(item);
   editedItem.value = { ...item };
   dialogDelete.value = true;
 };
 
+// Método para confirmar a exclusão de um produto
 const deleteItemConfirm = () => {
-  products.value.splice(editedIndex.value, 1);
+  products.value.result.splice(editedIndex.value, 1);
   closeDelete();
 };
 
+// Método para fechar o diálogo de edição
 const close = () => {
   dialog.value = false;
   setTimeout(() => {
@@ -250,6 +316,7 @@ const close = () => {
   }, 100);
 };
 
+// Método para fechar o diálogo de exclusão
 const closeDelete = () => {
   dialogDelete.value = false;
   setTimeout(() => {
@@ -258,23 +325,28 @@ const closeDelete = () => {
   }, 100);
 };
 
+// Método para salvar as alterações em um produto
 const save = async () => {
   if (editedIndex.value > -1) {
     Object.assign(products.value.result[index], editedItem.value);
   } else {
-    products.value.push({ ...editedItem.value });
+    products.value.result.push({ ...editedItem.value });
   }
   close();
 
   // Envie as alterações para a API
   try {
-    const response = await axios.put(`https://api.plugg.to/products/${editedItem.value.sku}`, editedItem.value, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        accept: "application/json",
-      },
-    });
+    const response = await axios.put(
+      `https://api.plugg.to/products/${editedItem.value.sku}`,
+      editedItem.value,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          accept: "application/json",
+        },
+      }
+    );
     if (response.status === 200) {
       // Atualizar a interface do usuário ou exibir uma mensagem de sucesso
       console.log("Alterações salvas com sucesso!");
@@ -285,8 +357,10 @@ const save = async () => {
   } catch (error) {
     console.error("Erro ao salvar as alterações:", error);
   }
-               
 };
-</script>
 
-<style></style>
+// Atualizar os produtos ao montar o componente
+onMounted(() => {
+  fetchProducts();
+});
+</script>

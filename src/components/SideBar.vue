@@ -8,7 +8,7 @@
   >
     <div color="" class="pa-4">
       <v-img
-        src="p1.webp"
+        src="/sales-ui-logo-m2.png"
         alt="food"
         width="150"
         height="150"
