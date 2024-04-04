@@ -1,190 +1,292 @@
 <template>
-  <v-app>
-    <v-container>
-      <v-row>
-        <v-col cols="3" class="d-flex pl-0 ml-0">
-            <FiltersProducts />
+  <v-app class="">
+    <v-container class="ml-3 px-3">
+      <v-row class="">
+        <v-col cols="2" class="d-flex pl-0 ml-0">
+          <FiltersProducts />
+        </v-col>
+        <v-col cols="10" class="pl-0 ml-0">
+          <v-data-table
+            density="compact"
+            :loading="isLoading"
+            :headers="headers"
+            :items="products.result"
+            :sort-by="[{ key: 'calories', order: 'asc' }]"
+          >
+            <template v-slot:top>
+              <v-toolbar flat>
+                <v-toolbar-title>Catalogo de Produtos</v-toolbar-title>
+                <v-divider class="mx-4" inset vertical></v-divider>
+                <v-spacer></v-spacer>
+                <v-dialog v-model="dialog" max-width="500px">
+                  <template v-slot:activator="{ props }">
+                    <v-btn
+                      class="mb-2"
+                      :color="theme.current.value.colors.secondary"
+                      dark
+                      v-bind="props"
+                    >
+                      Novo Produto
+                    </v-btn>
+                  </template>
+                  <v-card>
+                    <v-card-title>
+                      <span class="text-h5">{{ formTitle }}</span>
+                    </v-card-title>
+
+                    <v-card-text>
+                      <v-container>
+                        <v-row>
+                          <v-col cols="12" md="4" sm="6">
+                            <v-text-field
+                              v-model="editedItem.name"
+                              label="Nome do produto"
+                            ></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="4" sm="6">
+                            <v-text-field
+                              v-model="editedItem.price"
+                              label="Preço"
+                            ></v-text-field>
+                          </v-col>
+                          <v-col cols="12" md="4" sm="6">
+                            <v-text-field
+                              v-model="editedItem.quantity"
+                              label="Quantidade"
+                            ></v-text-field>
+                          </v-col>
+                        </v-row>
+                      </v-container>
+                    </v-card-text>
+
+                    <v-card-actions>
+                      <v-spacer></v-spacer>
+                      <v-btn
+                        color="green-darken-1"
+                        variant="text"
+                        @click="close"
+                      >
+                        Cancelar
+                      </v-btn>
+                      <v-btn
+                        color="green-darken-1"
+                        variant="text"
+                        @click="save"
+                      >
+                        Salvar
+                      </v-btn>
+                    </v-card-actions>
+                  </v-card>
+                </v-dialog>
+                <v-dialog v-model="dialogDelete" max-width="500px">
+                  <v-card>
+                    <v-card-title class="text-h5"
+                      >Gostaria mesmo de deletar este produto</v-card-title
+                    >
+                    <v-card-actions>
+                      <v-spacer></v-spacer>
+                      <v-btn
+                        color="green-darken-1"
+                        variant="text"
+                        @click="closeDelete"
+                        >Cancel</v-btn
+                      >
+                      <v-btn
+                        color="green-darken-1"
+                        variant="text"
+                        @click="deleteItemConfirm"
+                        >Confirmar</v-btn
+                      >
+                      <v-spacer></v-spacer>
+                    </v-card-actions>
+                  </v-card>
+                </v-dialog>
+              </v-toolbar>
+            </template>
+            <template v-slot:item.actions="{ item }">
+              <v-icon class="me-2" size="small" @click="editItem(item)">
+                mdi-pencil
+              </v-icon>
+              <v-icon
+                size="small"
+                :color="theme.current.value.colors.error"
+                @click="deleteItem(item)"
+              >
+                mdi-delete
+              </v-icon>
+            </template>
+            <template v-slot:no-data>
+              <v-btn color="primary"> Reset </v-btn>
+            </template>
+          </v-data-table>
         </v-col>
       </v-row>
     </v-container>
   </v-app>
 </template>
 
-<script>
-import { ref } from "vue";
+<script setup>
+import { ref, computed, onMounted } from "vue";
 import FiltersProducts from "@/components/filters/FiltersProducts.vue";
+import { useTheme } from "vuetify";
 
-export default {
-  data: () => ({
-    dialog: false,
-    dialogDelete: false,
-    headers: [
-      {
-        title: "Dessert (100g serving)",
-        align: "start",
-        sortable: false,
-        key: "name",
+import axios from "axios";
+
+const theme = useTheme();
+const isLoadging = ref(false);
+const products = ref({ total: 0, showing: 0, result: [] });
+const isLoading = ref(false);
+const lastPluggtoId = ref(null);
+const accessToken = "e3abf430a0f57cf40b3d8f0eed3a9960de49e673";
+
+// cabeçalho da tabela
+const headers = [
+  {
+    title: "Sku",
+    align: "start",
+    sortable: false,
+    value: "Product.sku",
+  },
+  { title: "Nome", value: "Product.name" },
+  { title: "Preço", value: "Product.price" },
+  { title: "Estoque", value: "Product.quantity" },
+  { title: "Acões", value: "actions" },
+  { title: "Variações", value: "", sortable: false },
+];
+// fetch products, responsavel pelos dados da tabela 
+const fetchProducts = async () => {
+  isLoading.value = true;
+
+  let url;
+  if (lastPluggtoId.value) {
+    url = `https://api.plugg.to/products?next=${lastPluggtoId.value}&limit=100`;
+  } else {
+    url = "https://api.plugg.to/products";
+  }
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        accept: "application/json",
       },
-      { title: "Calories", key: "calories" },
-      { title: "Fat (g)", key: "fat" },
-      { title: "Carbs (g)", key: "carbs" },
-      { title: "Protein (g)", key: "protein" },
-      { title: "Actions", key: "actions", sortable: false },
-    ],
-    desserts: [],
-    editedIndex: -1,
-    editedItem: {
-      name: "",
-      calories: 0,
-      fat: 0,
-      carbs: 0,
-      protein: 0,
-    },
-    defaultItem: {
-      name: "",
-      calories: 0,
-      fat: 0,
-      carbs: 0,
-      protein: 0,
-    },
-  }),
+    });
+    const responseData = response.data;
+    console.log("Produtos da API:", responseData);
 
-  computed: {
-    formTitle() {
-      return this.editedIndex === -1 ? "New Item" : "Edit Item";
-    },
-  },
+    // Se houver próxima página, atualize lastPluggtoId
+    if (responseData.next) {
+      lastPluggtoId.value = responseData.next;
+    }
 
-  watch: {
-    dialog(val) {
-      val || this.close();
-    },
-    dialogDelete(val) {
-      val || this.closeDelete();
-    },
-  },
+    // Atualize os produtos
+    products.value = {
+      total: responseData.total,
+      showing: responseData.result.length,
+      result: responseData.result,
+    };
+  } catch (error) {
+    console.error("Erro ao buscar produtos:", error);
+  } finally {
+    isLoading.value = false;
+  }
+};
 
-  created() {
-    this.initialize();
-  },
+const dialog = ref(false);
+const dialogDelete = ref(false);
 
-  methods: {
-    initialize() {
-      this.desserts = [
-        {
-          name: "Frozen Yogurt",
-          calories: 159,
-          fat: 6.0,
-          carbs: 24,
-          protein: 4.0,
-        },
-        {
-          name: "Ice cream sandwich",
-          calories: 237,
-          fat: 9.0,
-          carbs: 37,
-          protein: 4.3,
-        },
-        {
-          name: "Eclair",
-          calories: 262,
-          fat: 16.0,
-          carbs: 23,
-          protein: 6.0,
-        },
-        {
-          name: "Cupcake",
-          calories: 305,
-          fat: 3.7,
-          carbs: 67,
-          protein: 4.3,
-        },
-        {
-          name: "Gingerbread",
-          calories: 356,
-          fat: 16.0,
-          carbs: 49,
-          protein: 3.9,
-        },
-        {
-          name: "Jelly bean",
-          calories: 375,
-          fat: 0.0,
-          carbs: 94,
-          protein: 0.0,
-        },
-        {
-          name: "Lollipop",
-          calories: 392,
-          fat: 0.2,
-          carbs: 98,
-          protein: 0,
-        },
-        {
-          name: "Honeycomb",
-          calories: 408,
-          fat: 3.2,
-          carbs: 87,
-          protein: 6.5,
-        },
-        {
-          name: "Donut",
-          calories: 452,
-          fat: 25.0,
-          carbs: 51,
-          protein: 4.9,
-        },
-        {
-          name: "KitKat",
-          calories: 518,
-          fat: 26.0,
-          carbs: 65,
-          protein: 7,
-        },
-      ];
-    },
 
-    editItem(item) {
-      this.editedIndex = this.desserts.indexOf(item);
-      this.editedItem = Object.assign({}, item);
-      this.dialog = true;
-    },
+const editedIndex = ref(-1);
+const editedItem = ref({
+  name: "",
+  price: 0,
+  quantity: 0,
+});
+const defaultItem = {
+  name: "",
+  calories: 0,
+  fat: 0,
+  carbs: 0,
+  protein: 0,
+};
 
-    deleteItem(item) {
-      this.editedIndex = this.desserts.indexOf(item);
-      this.editedItem = Object.assign({}, item);
-      this.dialogDelete = true;
-    },
+const formTitle = computed(() => {
+  return editedIndex.value === -1 ? "Novo Produto" : "Editar Produto";
+});
 
-    deleteItemConfirm() {
-      this.desserts.splice(this.editedIndex, 1);
-      this.closeDelete();
-    },
+onMounted(() => {
+  fetchProducts();
+});
 
-    close() {
-      this.dialog = false;
-      this.$nextTick(() => {
-        this.editedItem = Object.assign({}, this.defaultItem);
-        this.editedIndex = -1;
-      });
-    },
 
-    closeDelete() {
-      this.dialogDelete = false;
-      this.$nextTick(() => {
-        this.editedItem = Object.assign({}, this.defaultItem);
-        this.editedIndex = -1;
-      });
-    },
+const editItem = (item) => {
+  const index = products.value.result.findIndex(product => product.sku === item.sku);
+  if (index !== -1) {
+    editedIndex.value = index;
+    // Copiar os valores do item atual para o editedItem
+    editedItem.value = { ...products.value.result[index] };
+    dialog.value = true;
+  }
+};
 
-    save() {
-      if (this.editedIndex > -1) {
-        Object.assign(this.desserts[this.editedIndex], this.editedItem);
-      } else {
-        this.desserts.push(this.editedItem);
-      }
-      this.close();
-    },
-  },
+
+const deleteItem = (item) => {
+  editedIndex.value = products.value.indexOf(item);
+  editedItem.value = { ...item };
+  dialogDelete.value = true;
+};
+
+const deleteItemConfirm = () => {
+  products.value.splice(editedIndex.value, 1);
+  closeDelete();
+};
+
+const close = () => {
+  dialog.value = false;
+  setTimeout(() => {
+    editedItem.value = { ...defaultItem };
+    editedIndex.value = -1;
+  }, 100);
+};
+
+const closeDelete = () => {
+  dialogDelete.value = false;
+  setTimeout(() => {
+    editedItem.value = { ...defaultItem };
+    editedIndex.value = -1;
+  }, 100);
+};
+
+const save = async () => {
+  if (editedIndex.value > -1) {
+    Object.assign(products.value.result[index], editedItem.value);
+  } else {
+    products.value.push({ ...editedItem.value });
+  }
+  close();
+
+  // Envie as alterações para a API
+  try {
+    const response = await axios.put(`https://api.plugg.to/products/${editedItem.value.sku}`, editedItem.value, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        accept: "application/json",
+      },
+    });
+    if (response.status === 200) {
+      // Atualizar a interface do usuário ou exibir uma mensagem de sucesso
+      console.log("Alterações salvas com sucesso!");
+    } else {
+      // Exibir mensagem de erro para o usuário
+      console.error("Erro ao salvar as alterações:", response.data.message);
+    }
+  } catch (error) {
+    console.error("Erro ao salvar as alterações:", error);
+  }
+               
 };
 </script>
+
+<style></style>
